@@ -72,15 +72,14 @@ object Pulls extends IOApp.Simple {
 
     // Exercise -> implement using pulls
     def skipLimit[A](skip: Int, limit: Int)(s: Stream[IO, A]): Stream[IO, A] = {
-      val p =
-        for {
-          tailOpt <- s.pull.drop(skip)
-          _ <- tailOpt match {
-            case Some(rest) => rest.pull.take(limit)
-            case None       => Pull.done
-          }
-        } yield ()
-      p.stream
+      s.pull
+        .drop(skip)
+        .flatMap {
+          case Some(value) =>
+            value.pull.take(limit) >> Pull.done
+          case None => Pull.done
+        }
+        .stream
     }
     skipLimit(10, 10)(Stream.range(1, 100)).compile.toList.flatMap(IO.println)
     skipLimit(1, 15)(Stream.range(1, 5)).compile.toList.flatMap(IO.println)
@@ -123,22 +122,20 @@ object Pulls extends IOApp.Simple {
     IO.println(s.through(filter(_ % 2 == 1)).toList)
 
     def runningSum: Pipe[Pure, Int, Int] = s => {
-      s.scanChunksOpt(0) { sumAcc =>
-        Some { (chunk: Chunk[Int]) =>
-          val newSum =
-            chunk.foldLeft[Int](0)(_ + _) + sumAcc
-          (newSum, Chunk.singleton(newSum))
-        }
+      s.scanChunks(0) { (sumAcc, chunk: Chunk[Int]) =>
+        val newSum =
+          chunk.foldLeft[Int](0)(_ + _) + sumAcc
+        (newSum, Chunk.singleton(newSum))
       }
     }
     IO.println(s.through(runningSum).toList)
 
     // Exercise
     def runningMax: Pipe[Pure, Int, Int] = s => {
-      s.scanChunksOpt(Int.MinValue) { acc =>
-        Some { (chunk: Chunk[Int]) =>
-          val newState = chunk.foldLeft(Int.MinValue)(_ max _) max acc
-          (newState, Chunk.singleton(newState))
+      s.scanChunks(Int.MinValue) { (maxAcc, chunk: Chunk[Int]) =>
+        {
+          val max = chunk.foldLeft(maxAcc)(_.max(_)).max(maxAcc)
+          (max, Chunk.singleton(max))
         }
       }
     }
