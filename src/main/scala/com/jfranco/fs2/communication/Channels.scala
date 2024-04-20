@@ -25,9 +25,13 @@ object Channels extends IOApp.Simple {
 
     // Slow version , bounded to a buffer of 1 element
     Stream
-      .eval(Channel.bounded[IO, Int](1))
+      .eval(Channel.bounded[IO, Int](10))
       .flatMap { channel =>
-        val p = Stream.iterate(1)(_ + 1).covary[IO].evalMap(channel.send).drain
+        val p = Stream
+          .iterate(1)(_ + 1)
+          .covary[IO]
+          .evalMap(it => IO.println(s"Producring: $it") *> channel.send(it))
+          .drain
         val c = channel.stream
           .metered(200.millis)
           .evalMap(i => IO.println(s"Read $i"))

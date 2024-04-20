@@ -67,11 +67,13 @@ object Queues extends IOApp.Simple {
           for {
             randomWait <- IO(math.abs(Random.nextInt()) % 500)
             _ <- IO.sleep(randomWait.millis)
+            id = Random.between(1L, 1000L)
             _ <- controller.postAccount(
-              customerId = Random.between(1L, 1000L),
+              customerId = id,
               accountType = if (Random.nextBoolean()) "ira" else "brokerage",
               creationDate = LocalDateTime.now()
             )
+            _ <- IO.println(s"Producing: $id")
           } yield ()
         prog.foreverM
       }
@@ -113,12 +115,20 @@ object Queues extends IOApp.Simple {
     Stream
       .eval(Queue.unbounded[IO, CreateAccountData])
       .flatMap { queue =>
-        val serverStream =
-          Stream.eval(new Server(new QueueController(queue)).start())
-        val consumerStream = Stream.fromQueueUnterminated(queue).printlns
-        consumerStream.merge(serverStream)
+        val controller = QueueController(queue)
+        val server = Server(controller)
+
+        val consumer =
+          Stream
+            .fromQueueUnterminated(queue)
+            .evalMap(e => IO.println(s"Consumed: $e"))
+            .drain
+
+        Stream(
+          Stream.eval(server.start()),
+          consumer
+        ).parJoinUnbounded
       }
-      .interruptAfter(5.seconds)
       .compile
       .drain
   }
